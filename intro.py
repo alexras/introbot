@@ -1,7 +1,7 @@
 import sys
 import subprocess
 import csv
-from optparse import OptionParser
+import argparse
 
 import settings
 
@@ -19,9 +19,38 @@ def save_person(nick, desc, name=None, filename="people.csv"):
         w = csv.writer(csvfile)
         w.writerow([nick, name, desc])
 
+def handle_save(args):
+    if args.nickname is not None:
+        save_person(args.nickname, args.description, args.name)
+    else:
+        save_person(args.name, args.description)
+
+def handle_intro(args):
+     people = load_people()
+
+     if len(args.people) < 2:
+         sys.exit("At least two people are required to make an introduction.")
+
+     introducing = {} # get the people data from the set
+     for person in args.people:
+         try:
+             introducing[person] = people[person]
+         except KeyError, e:
+             print "Missing person %s in your data!" % e
+             sys.exit()
+
+     msg = write_introduction(introducing, args.message)
+     print msg
+     p = subprocess.Popen(["pbcopy"],stdin=subprocess.PIPE)
+     p.stdin.write(msg)
+
+
 def write_introduction(people, message):
-    i = " & ".join([v[0] for n,v in people.items()]) + ", please meet.\n\n"
-    i += "\n\n".join([v[1] for n,v in people.items()])
+    nicks, infos = zip(*(people.items()))
+    names, descriptions = zip(*infos)
+
+    i = ", ".join(names[:-1]) + " & " + names[-1] + ", please meet.\n\n"
+    i += "\n\n".join(descriptions)
     if message:
         i += "\n\n" + message
     else:
@@ -31,29 +60,30 @@ def write_introduction(people, message):
 
 
 if __name__ == '__main__':
-    parser = OptionParser()
-    parser.add_option("-a", "--add", dest="add", action="store_true")
-    parser.add_option("-m", "--message", dest="message", default=False, action="store")
-    (options, args) = parser.parse_args()
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(
+        title="subcommand", help="subcommand help")
+    add_parser = subparsers.add_parser('add', help="add a person")
+    add_parser.add_argument(
+        "nickname", help="the person's nickname, used by the `message` "
+        "command to refer to this person (default: the person's name)",
+        nargs='?')
+    add_parser.add_argument("name", help="the person's name")
+    add_parser.add_argument(
+        "description", help="a description of this person, used to introduce "
+        "them to other people")
+    add_parser.set_defaults(func=handle_save)
 
-    if options.add: # we're adding a new person
-        if len(args) == 2:
-            save_person(args[0], args[1])
-        else:
-            save_person(args[0], args[2], args[1])
+    message_parser = subparsers.add_parser(
+        "intro", help="introduce people to one another")
+    message_parser.add_argument(
+        "-m", "--message", default=False, action="store", help="a custom "
+        "message introducing these people to one another")
+    message_parser.add_argument(
+        "people", nargs="+", help="the people being introduced "
+        "to one another")
+    message_parser.set_defaults(func=handle_intro)
 
-    else: # write the intro
-        people = load_people()
+    args = parser.parse_args()
 
-        introducing = {} # get the people data from the set
-        for person in args:
-            try:
-                introducing[person] = people[person]
-            except KeyError, e:
-                print "Missing person %s in your data!" % e
-                sys.exit()
-
-        msg = write_introduction(introducing, options.message)
-        print msg
-        p = subprocess.Popen(["pbcopy"],stdin=subprocess.PIPE)
-        p.stdin.write(msg)
+    args.func(args)
